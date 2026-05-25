@@ -1,0 +1,8 @@
+Pillow>=12.2.0
+numpy>=2.0
+openai>=1.0.0
+huggingface-hub>=0.20
+llama-cpp-python>=0.2.0
+matplotlib>=3.8
+psutil>=5.9
+pyobjc-framework-Cocoa>=10.3; sys_platform == "darwin"

@@ -26,13 +26,14 @@ DEFAULT_LIGATURE_REFERENCES = (
 
 @dataclass(frozen=True)
 class OpenAIGlyphMatch:
+    kind: str
     label: str
     alternates: tuple[str, ...]
     reasoning: str
 
     def format(self) -> str:
         alternates = ", ".join(self.alternates) if self.alternates else "none"
-        return f"label: {self.label}\nalternates: {alternates}"
+        return f"kind: {self.kind}\nlabel: {self.label}\nalternates: {alternates}"
 
 
 def data_uri(image_path: Path) -> str:
@@ -96,6 +97,33 @@ def full_key_prompt(labels: tuple[str, ...]) -> str:
     )
 
 
+def crop_kind_prompt() -> str:
+    return (
+        "You will receive multiple images. The first image is one query rongorongo crop. "
+        "The second image is the full reference key table. The remaining images are ligature examples. "
+        "Classify the query crop before any label identification. "
+        "Use single if it contains one usable glyph. "
+        "Use ligature if it contains multiple whole or partial glyphs fused, overlapped, or side by side. "
+        "Use bad_crop if it is too incomplete, too tiny, mostly blank, cut off, noise, or not enough of a glyph to identify. "
+        "Return exactly one line in this format:\n"
+        "kind: <single|ligature|bad_crop>"
+    )
+
+
+def identification_prompt(labels: tuple[str, ...], kind: str) -> str:
+    kind_rule = (
+        "Because the first pass classified the query as ligature, prefer a '.' separated label combination. "
+        if kind == "ligature"
+        else "Because the first pass classified the query as single, prefer one label unless a composite is visually unavoidable. "
+    )
+    return f"{full_key_prompt(labels)} {kind_rule}"
+
+
+def parse_crop_kind(answer: str) -> str:
+    match = re.search(r"^\s*kind\s*:\s*(single|ligature|bad_crop)\s*$", answer.strip(), re.IGNORECASE | re.MULTILINE)
+    return match.group(1).lower() if match else "single"
+
+
 def parse_alternates(answer: str, labels: tuple[str, ...]) -> tuple[str, ...]:
     match = re.search(r"^\s*alternates\s*:\s*(.+?)\s*$", answer.strip(), re.IGNORECASE | re.MULTILINE)
     if not match:
@@ -114,9 +142,10 @@ def parse_alternates(answer: str, labels: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(alternates)
 
 
-def parse_openai_match(answer: str, labels: tuple[str, ...]) -> OpenAIGlyphMatch:
+def parse_openai_match(answer: str, labels: tuple[str, ...], kind: str) -> OpenAIGlyphMatch:
     match = parse_match(answer, labels)
     return OpenAIGlyphMatch(
+        kind=kind,
         label=match.label,
         alternates=parse_alternates(answer, labels),
         reasoning=match.reasoning,
@@ -124,6 +153,7 @@ def parse_openai_match(answer: str, labels: tuple[str, ...]) -> OpenAIGlyphMatch
 
 
 def call_openai(
+    prompt_text: str,
     glyph_path: Path,
     key_path: Path,
     ligature_paths: tuple[Path, ...],
@@ -134,7 +164,7 @@ def call_openai(
 ) -> str:
     client = OpenAI()
     content = [
-        {"type": "input_text", "text": full_key_prompt(DEFAULT_LABELS)},
+        {"type": "input_text", "text": prompt_text},
         {"type": "input_image", "image_url": data_uri(glyph_path)},
         {"type": "input_image", "image_url": data_uri(key_path)},
     ]
@@ -168,7 +198,23 @@ def identify_glyph(
     if keep_comparison:
         make_comparison_image(glyph_path, key_path, keep_comparison, ligature_paths)
 
-    answer = call_openai(
+    kind_answer = call_openai(
+        crop_kind_prompt(),
+        glyph_path,
+        key_path,
+        ligature_paths,
+        model=model,
+        max_output_tokens=24,
+        temperature=temperature,
+    )
+    kind = parse_crop_kind(kind_answer)
+
+    if kind == "bad_crop":
+        match = OpenAIGlyphMatch(kind=kind, label="bad_crop", alternates=(), reasoning="")
+        return f"{match.format()}\nraw_kind: {kind_answer}" if raw else match.format()
+
+    label_answer = call_openai(
+        identification_prompt(DEFAULT_LABELS, kind),
         glyph_path,
         key_path,
         ligature_paths,
@@ -177,8 +223,8 @@ def identify_glyph(
         temperature=temperature,
     )
 
-    match = parse_openai_match(answer, DEFAULT_LABELS)
-    return f"{match.format()}\nraw: {answer}" if raw else match.format()
+    match = parse_openai_match(label_answer, DEFAULT_LABELS, kind)
+    return f"{match.format()}\nraw_kind: {kind_answer}\nraw_label: {label_answer}" if raw else match.format()
 
 
 def parse_args() -> argparse.Namespace:

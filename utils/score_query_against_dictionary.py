@@ -24,6 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_QUERY = ROOT / "rr_tablets" / "compressed" / "Aa" / "1.webp"
 DEFAULT_DICTIONARY = ROOT / "references" / "dictionary" / "split"
 DEFAULT_ENV = ROOT / ".env"
+DEFAULT_SCORES_DIR = ROOT / "outputs" / "scores" / "openai"
 DEFAULT_MODEL = "o3"
 MIN_OUTPUT_TOKENS = 16
 O_SERIES_OUTPUT_TOKENS = 512
@@ -45,7 +46,7 @@ class ScoreRun:
     query: str
     checked: int
     best_score: DictionaryScore | None
-    scores: list[DictionaryScore] | None = None
+    scores: list[DictionaryScore]
 
 
 def data_uri(image_path: Path) -> str:
@@ -433,8 +434,21 @@ def score_query_against_dictionary(
         query=str(query_path),
         checked=len(scores),
         best_score=ranked[0] if ranked else None,
-        scores=scores if batch_size > 1 else None,
+        scores=scores,
     )
+
+
+def safe_filename_part(value: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_.-]+", "-", value).strip("-")
+
+
+def default_scores_output(query_path: Path, model: str) -> Path:
+    return DEFAULT_SCORES_DIR / f"{query_path.parent.name}_{query_path.stem}_{safe_filename_part(model)}.json"
+
+
+def write_scores_json(run: ScoreRun, output_path: Path) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(asdict(run), indent=2))
 
 
 def parse_args() -> argparse.Namespace:
@@ -448,6 +462,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-output-tokens", type=int, default=None, help=f"Maximum tokens to generate per request. Minimum: {MIN_OUTPUT_TOKENS}. Defaults scale with --batch-size, or at least {O_SERIES_OUTPUT_TOKENS} for o-series models.")
     parser.add_argument("--temperature", type=float, default=0.0, help="Model sampling temperature.")
     parser.add_argument("--batch-size", type=int, default=1, help="Number of dictionary glyphs to score per model request. Default: 1.")
+    parser.add_argument("--scores-output", type=Path, help=f"Path to write all scores as JSON. Default: {DEFAULT_SCORES_DIR}/<query>_<model>.json")
     parser.add_argument("--no-progress", action="store_true", help="Disable the per-dictionary-glyph progress bar.")
     parser.add_argument("--debug", action="store_true", help="Print each score while running.")
     args = parser.parse_args()
@@ -472,9 +487,11 @@ def main() -> None:
         debug=args.debug,
         batch_size=args.batch_size,
     )
+    scores_output = args.scores_output or default_scores_output(args.query, args.model)
+    write_scores_json(run, scores_output)
     output = asdict(run)
-    if output["scores"] is None:
-        del output["scores"]
+    del output["scores"]
+    output["scores_output"] = str(scores_output)
     print(json.dumps(output, indent=2))
 
 

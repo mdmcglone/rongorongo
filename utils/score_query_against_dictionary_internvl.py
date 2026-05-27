@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
 import re
 import sys
 import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Callable, TypeVar
+from typing import Any, TypeVar
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -21,9 +20,25 @@ except ImportError:
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_QUERY = ROOT / "rr_tablets" / "compressed" / "Aa" / "1.webp"
 DEFAULT_DICTIONARY = ROOT / "references" / "dictionary" / "split"
-DEFAULT_QWEN_UTIL = Path("/Users/emdmcglone/Desktop/mareep/qwen25_vl_32b/util.py")
-DEFAULT_MODEL_ID = "mlx-community/Qwen2.5-VL-32B-Instruct-4bit"
-DEFAULT_LOCAL_DIR = Path("/Users/emdmcglone/Desktop/mareep/qwen25_vl_32b/models/mlx-community--Qwen2.5-VL-32B-Instruct-4bit")
+DEFAULT_SCORES_DIR = ROOT / "outputs" / "scores" / "internvl"
+DEFAULT_VARIANT = "8b"
+INTERNVL_VARIANTS: dict[str, tuple[str, Path, Path]] = {
+    "8b": (
+        "mlx-community/InternVL3-8B-MLX-4bit",
+        Path("/Users/emdmcglone/Desktop/mareep/internvl3_8b/util.py"),
+        Path("/Users/emdmcglone/Desktop/mareep/internvl3_8b/models/mlx-community--InternVL3-8B-MLX-4bit"),
+    ),
+    "14b": (
+        "mlx-community/InternVL3-14B-4bit",
+        Path("/Users/emdmcglone/Desktop/mareep/internvl3_14b/util.py"),
+        Path("/Users/emdmcglone/Desktop/mareep/internvl3_14b/models/mlx-community--InternVL3-14B-4bit"),
+    ),
+    "38b": (
+        "mlx-community/InternVL3-38B-4bit",
+        Path("/Users/emdmcglone/Desktop/mareep/internvl3_38b/util.py"),
+        Path("/Users/emdmcglone/Desktop/mareep/internvl3_38b/models/mlx-community--InternVL3-38B-4bit"),
+    ),
+}
 DEFAULT_MAX_TOKENS = 256
 SUPPORTED_SUFFIXES = frozenset({".gif", ".jpg", ".jpeg", ".png", ".webp"})
 SCORE_PATTERN = re.compile(r"(?<!\d)0\.[0-9]{3}(?!\d)")
@@ -33,7 +48,6 @@ DIGIT_PATTERN = re.compile(
     re.IGNORECASE,
 )
 T = TypeVar("T")
-SimpleCall = Callable[..., str | Any]
 
 
 @dataclass(frozen=True)
@@ -49,20 +63,36 @@ class ScoreRun:
     query: str
     checked: int
     best_score: DictionaryScore | None
-    scores: list[DictionaryScore] | None = None
+    scores: list[DictionaryScore]
 
 
-def load_simple_call(util_path: Path) -> SimpleCall:
-    for path in (util_path.parent, util_path.parent.parent):
-        module_dir = str(path)
-        if module_dir not in sys.path:
-            sys.path.insert(0, module_dir)
-    spec = importlib.util.spec_from_file_location("qwen25_vl_util", util_path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Could not load Qwen util from {util_path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module.simple_call
+class LocalVisionModel:
+    def __init__(self, *, model_id: str, local_dir: Path | None) -> None:
+        from mlx_vlm import load
+        from mlx_vlm.utils import load_config
+
+        self.model_ref = str(Path(local_dir)) if local_dir else model_id
+        print(f"Loading InternVL model once from {self.model_ref}", file=sys.stderr, flush=True)
+        self.model, self.processor = load(self.model_ref)
+        self.config = load_config(self.model_ref)
+        print("InternVL model loaded; subsequent Prefill lines are per image/prompt, not reloads.", file=sys.stderr, flush=True)
+
+    def generate(self, prompt: str, image_path: Path, *, max_tokens: int, temperature: float, verbose: bool) -> str:
+        from mlx_vlm import generate
+        from mlx_vlm.prompt_utils import apply_chat_template
+
+        images = [str(Path(image_path))]
+        formatted_prompt = apply_chat_template(self.processor, self.config, prompt, num_images=len(images))
+        response = generate(
+            self.model,
+            self.processor,
+            formatted_prompt,
+            images,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            verbose=verbose,
+        )
+        return str(response).strip()
 
 
 def numeric_sort_key(path: Path) -> tuple[int, str]:
@@ -219,31 +249,24 @@ def parse_batch_scores(raw: str, labels: list[str]) -> dict[str, str]:
 
 
 def score_dictionary_batch(
-    simple_call: SimpleCall,
+    vision_model: LocalVisionModel,
     query_path: Path,
     dictionary_batch: list[Path],
     temp_dir: Path,
     *,
-    qwen_util: Path,
-    model_id: str,
-    local_dir: Path | None,
     max_tokens: int,
     temperature: float,
     verbose: bool,
 ) -> list[DictionaryScore]:
     labels = [path.stem for path in dictionary_batch]
     sheet_path = make_comparison_sheet(query_path, dictionary_batch, temp_dir / f"batch_{labels[0]}_{labels[-1]}.png")
-    raw = str(
-        simple_call(
-            batch_score_prompt(labels),
-            image_path=sheet_path,
-            model_id=model_id,
-            local_dir=local_dir,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            verbose=verbose,
-        )
-    ).strip()
+    raw = vision_model.generate(
+        batch_score_prompt(labels),
+        sheet_path,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        verbose=verbose,
+    )
     scores = parse_batch_scores(raw, labels)
     return [
         DictionaryScore(path=str(path), label=path.stem, score=scores[path.stem], raw=raw)
@@ -251,11 +274,10 @@ def score_dictionary_batch(
     ]
 
 
-def score_query_against_dictionary_qwen(
+def score_query_against_dictionary_internvl(
     query_path: Path,
     dictionary_dir: Path,
     *,
-    qwen_util: Path,
     model_id: str,
     local_dir: Path | None,
     max_tokens: int,
@@ -269,7 +291,7 @@ def score_query_against_dictionary_qwen(
     if not candidates:
         raise FileNotFoundError(f"No supported dictionary images found in {dictionary_dir}")
 
-    simple_call = load_simple_call(qwen_util)
+    vision_model = LocalVisionModel(model_id=model_id, local_dir=local_dir)
     scores: list[DictionaryScore] = []
     total = len(candidates)
 
@@ -278,13 +300,10 @@ def score_query_against_dictionary_qwen(
         checked = 0
         for batch in progress(chunks(candidates, batch_size), enabled=show_progress, description=f"Scoring {query_path.stem}"):
             results = score_dictionary_batch(
-                simple_call,
+                vision_model,
                 query_path,
                 batch,
                 temp_dir,
-                qwen_util=qwen_util,
-                model_id=model_id,
-                local_dir=local_dir,
                 max_tokens=max_tokens,
                 temperature=temperature,
                 verbose=verbose,
@@ -300,26 +319,41 @@ def score_query_against_dictionary_qwen(
         query=str(query_path),
         checked=len(scores),
         best_score=ranked[0] if ranked else None,
-        scores=scores if batch_size > 1 else None,
+        scores=scores,
     )
+
+
+def default_scores_output(query_path: Path, variant: str) -> Path:
+    return DEFAULT_SCORES_DIR / f"{query_path.parent.name}_{query_path.stem}_{variant}.json"
+
+
+def write_scores_json(run: ScoreRun, output_path: Path) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(asdict(run), indent=2))
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Score one query glyph against dictionary glyphs using local Qwen2.5-VL."
+        description="Score one query glyph against dictionary glyphs using local InternVL3."
     )
     parser.add_argument("--query", type=Path, default=DEFAULT_QUERY, help=f"Query glyph. Default: {DEFAULT_QUERY}")
     parser.add_argument("--dictionary", type=Path, default=DEFAULT_DICTIONARY, help=f"Dictionary split folder. Default: {DEFAULT_DICTIONARY}")
-    parser.add_argument("--qwen-util", type=Path, default=DEFAULT_QWEN_UTIL, help=f"Qwen util.py path. Default: {DEFAULT_QWEN_UTIL}")
-    parser.add_argument("--model-id", default=DEFAULT_MODEL_ID, help=f"Qwen model id. Default: {DEFAULT_MODEL_ID}")
-    parser.add_argument("--local-dir", type=Path, default=DEFAULT_LOCAL_DIR, help=f"Local model directory passed to qwen25_vl.util.simple_call. Default: {DEFAULT_LOCAL_DIR}")
+    parser.add_argument("--variant", choices=tuple(INTERNVL_VARIANTS), default=DEFAULT_VARIANT, help=f"InternVL variant to use. Default: {DEFAULT_VARIANT}.")
+    parser.add_argument("--internvl-util", type=Path, help="Deprecated; kept for CLI compatibility. Defaults from --variant.")
+    parser.add_argument("--model-id", help="InternVL model id. Defaults from --variant.")
+    parser.add_argument("--local-dir", type=Path, help="Local model directory. Defaults from --variant.")
     parser.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS, help=f"Maximum tokens to generate. Default: {DEFAULT_MAX_TOKENS}.")
     parser.add_argument("--temperature", type=float, default=0.0, help="Model sampling temperature.")
     parser.add_argument("--batch-size", type=int, default=1, help="Number of dictionary glyphs to score per local model call. Default: 1.")
+    parser.add_argument("--scores-output", type=Path, help=f"Path to write all scores as JSON. Default: {DEFAULT_SCORES_DIR}/<query>_<variant>.json")
     parser.add_argument("--no-progress", action="store_true", help="Disable the per-batch progress bar.")
     parser.add_argument("--debug", action="store_true", help="Print each score while running.")
-    parser.add_argument("--verbose", action="store_true", help="Pass verbose=True to qwen25_vl.util.simple_call.")
+    parser.add_argument("--verbose", action="store_true", help="Pass verbose=True to mlx_vlm.generate.")
     args = parser.parse_args()
+    variant_model_id, variant_util, variant_local_dir = INTERNVL_VARIANTS[args.variant]
+    args.model_id = args.model_id or variant_model_id
+    args.internvl_util = args.internvl_util or variant_util
+    args.local_dir = args.local_dir or variant_local_dir
     if args.batch_size < 1:
         parser.error("--batch-size must be >= 1")
     if args.max_tokens < 16:
@@ -329,10 +363,9 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    run = score_query_against_dictionary_qwen(
+    run = score_query_against_dictionary_internvl(
         query_path=args.query,
         dictionary_dir=args.dictionary,
-        qwen_util=args.qwen_util,
         model_id=args.model_id,
         local_dir=args.local_dir,
         max_tokens=args.max_tokens,
@@ -342,9 +375,11 @@ def main() -> None:
         debug=args.debug,
         verbose=args.verbose,
     )
+    scores_output = args.scores_output or default_scores_output(args.query, args.variant)
+    write_scores_json(run, scores_output)
     output = asdict(run)
-    if output["scores"] is None:
-        del output["scores"]
+    del output["scores"]
+    output["scores_output"] = str(scores_output)
     print(json.dumps(output, indent=2))
 
 

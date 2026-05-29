@@ -1,1 +1,49 @@
+# Secrets
 .env
+.env.*
+
+# Python
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~
+
+# Model / embedding artifacts (regenerate via embed/run_embedding_pipeline.py)
+outputs/
+
+# Embedding graphs and hyperparameter search outputs (keep embed/*.py and gloss_anchors.json)
+embed/graphs/
+embed/tuning/trial_outputs/
+embed/tuning/trial_neighbors/
+embed/tuning/*.log
+embed/tuning/*.jsonl
+embed/tuning/*_summary.json
+embed/tuning/consistent_non_gloss.json
+embed/tuning/non_glossed_*.json
+
+# Generated transliteration derivatives (utils/tokenize_transliterated.py)
+rr_tablets/transliterated/**/text/
+rr_tablets/transliterated/**/tokenized/
+
+# Hugging Face caches (if downloaded into the repo)
+.cache/
+hf_cache/

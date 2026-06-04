@@ -136,6 +136,7 @@ def build_trial_grid() -> list[TrialConfig]:
 
 
 SIMPLE_VARIANT_STRATEGIES = ("simple", "simple_separators", "simple_ligatures")
+SUFFIX_VARIANT_STRATEGIES = ("suffix", "suffix_separators", "suffix_ligatures", "suffix_noag")
 
 
 def _enumerate_hyper_candidates() -> list[tuple[float, float, float, int, int]]:
@@ -318,6 +319,80 @@ def build_simple_variants_focused_grid() -> list[TrialConfig]:
         trials, seen, counter, strategy="simple_ligatures", model_preset="e5-small", hypers=ligatures_hypers, prefix="svf_lig_"
     )
     _append_trials(trials, seen, counter, strategy="simple", model_preset="minilm", hypers=minilm_simple_hypers, prefix="svf_mn_")
+    return trials
+
+
+def build_suffix_variants_focused_grid() -> list[TrialConfig]:
+    """Same hyperparameter blocks as simple_variants_focused, with suffix tokenizers."""
+    simple_hypers = [
+        (8.0, 0.50, 0.15, 12, 12),
+        (6.0, 0.50, 0.15, 12, 12),
+        (8.0, 0.60, 0.15, 12, 12),
+        (8.0, 0.50, 0.15, 12, 14),
+        (8.0, 0.50, 0.12, 12, 12),
+        (7.0, 0.50, 0.15, 12, 12),
+        (9.0, 0.50, 0.15, 12, 12),
+        (8.0, 0.55, 0.15, 12, 12),
+        (8.0, 0.45, 0.15, 12, 12),
+        (8.0, 0.50, 0.10, 12, 12),
+        (8.0, 0.50, 0.18, 12, 12),
+        (8.0, 0.50, 0.15, 10, 12),
+        (8.0, 0.50, 0.15, 14, 12),
+        (8.0, 0.50, 0.15, 12, 11),
+        (8.0, 0.50, 0.15, 12, 13),
+        (6.0, 0.55, 0.15, 12, 12),
+        (8.0, 0.60, 0.12, 12, 12),
+        (7.0, 0.55, 0.12, 12, 12),
+    ]
+    separators_hypers = [
+        (8.0, 0.50, 0.15, 12, 15),
+        (8.0, 0.50, 0.15, 12, 14),
+        (8.0, 0.50, 0.15, 12, 16),
+        (7.0, 0.50, 0.15, 12, 15),
+        (9.0, 0.50, 0.15, 12, 15),
+        (8.0, 0.45, 0.15, 12, 15),
+        (8.0, 0.55, 0.15, 12, 15),
+        (8.0, 0.50, 0.12, 12, 15),
+        (8.0, 0.50, 0.12, 12, 12),
+        (8.0, 0.50, 0.10, 12, 15),
+        (6.0, 0.50, 0.15, 12, 15),
+        (8.0, 0.50, 0.15, 14, 15),
+    ]
+    ligatures_hypers = [
+        (8.0, 0.50, 0.15, 12, 12),
+        (6.0, 0.50, 0.15, 12, 12),
+        (8.0, 0.60, 0.15, 12, 12),
+        (8.0, 0.50, 0.15, 12, 14),
+        (8.0, 0.50, 0.12, 12, 12),
+        (8.0, 0.55, 0.15, 12, 12),
+        (8.0, 0.45, 0.15, 12, 12),
+        (8.0, 0.50, 0.15, 10, 12),
+        (8.0, 0.50, 0.15, 14, 12),
+        (8.0, 0.50, 0.15, 12, 13),
+        (7.0, 0.50, 0.15, 12, 12),
+        (8.0, 0.50, 0.15, 12, 15),
+    ]
+    noag_hypers = [
+        (8.0, 0.50, 0.15, 12, 12),
+        (8.0, 0.65, 0.15, 12, 12),
+        (8.0, 0.50, 0.15, 12, 10),
+        (6.0, 0.50, 0.15, 12, 12),
+        (8.0, 0.50, 0.12, 12, 12),
+        (8.0, 0.60, 0.15, 12, 12),
+    ]
+    trials: list[TrialConfig] = []
+    seen: set[tuple[Any, ...]] = set()
+    counter = [0]
+    _append_trials(trials, seen, counter, strategy="suffix", model_preset="e5-small", hypers=simple_hypers, prefix="svfx_e5_")
+    _append_trials(
+        trials, seen, counter, strategy="suffix_separators", model_preset="e5-small", hypers=separators_hypers, prefix="svfx_sep_"
+    )
+    _append_trials(
+        trials, seen, counter, strategy="suffix_ligatures", model_preset="e5-small", hypers=ligatures_hypers, prefix="svfx_lig_"
+    )
+    _append_trials(
+        trials, seen, counter, strategy="suffix_noag", model_preset="e5-small", hypers=noag_hypers, prefix="svfx_ng_"
+    )
     return trials
 
 
@@ -611,6 +686,11 @@ GRID_OUTPUT: dict[str, tuple[str, str, Any]] = {
         "simple_variants_focused_best_summary.json",
         build_simple_variants_focused_grid,
     ),
+    "suffix_variants_focused": (
+        "suffix_variants_focused_trials.jsonl",
+        "suffix_variants_focused_best_summary.json",
+        build_suffix_variants_focused_grid,
+    ),
 }
 
 
@@ -656,7 +736,7 @@ def parse_args() -> argparse.Namespace:
         "--analyze-after",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Run consistent non-gloss analysis when grid is simple_variants_focused.",
+        help="Run consistent non-gloss analysis after focused variant grids.",
     )
     return parser.parse_args()
 
@@ -753,7 +833,7 @@ def main() -> None:
     for item in summary["best_trials"]:
         print(json.dumps(item, indent=2))
 
-    if args.analyze_after and args.grid == "simple_variants_focused" and args.save_artifacts:
+    if args.analyze_after and args.grid in ("simple_variants_focused", "suffix_variants_focused") and args.save_artifacts:
         analyze_script = EMBED_DIR / "analyze_consistent_non_gloss_neighbors.py"
         if analyze_script.exists():
             import subprocess

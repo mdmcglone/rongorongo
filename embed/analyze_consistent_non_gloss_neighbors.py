@@ -195,30 +195,80 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--neighbors-root", type=Path, default=DEFAULT_NEIGHBORS_ROOT)
     parser.add_argument("--trials-jsonl", type=Path, default=DEFAULT_TRIALS)
-    parser.add_argument("--min-score", type=float, default=4.0)
-    parser.add_argument("--min-unique-top1", type=int, default=100)
-    parser.add_argument("--min-entropy", type=float, default=4.0)
+    parser.add_argument("--min-score", type=float, default=3.0, help="Minimum tuning score for a trial to count.")
+    parser.add_argument(
+        "--min-unique-top1",
+        type=int,
+        default=50,
+        help="Minimum unique English top-1 labels (filters hard collapse).",
+    )
+    parser.add_argument(
+        "--min-entropy",
+        type=float,
+        default=3.0,
+        help="Minimum top-1 entropy in bits across glyphs.",
+    )
     parser.add_argument("--min-trials", type=int, default=2, help="Absolute minimum trial agreement count.")
     parser.add_argument(
         "--min-trial-fraction",
         type=float,
-        default=0.5,
+        default=0.35,
         help="Fraction of quality trials that must agree (used with min-trials, whichever is stricter).",
     )
-    parser.add_argument("--min-margin", type=float, default=0.05)
+    parser.add_argument("--min-margin", type=float, default=0.03, help="Minimum top1-top2 cosine margin per vote.")
     parser.add_argument(
         "--max-global-top1-fraction",
         type=float,
-        default=0.05,
+        default=0.08,
         help="Ignore top-1 words that appear for more than this fraction of non-gloss glyphs within a trial.",
+    )
+    parser.add_argument(
+        "--preset",
+        choices=("default", "strict", "relaxed"),
+        default="default",
+        help="strict = old tight filters; relaxed = more trials and lower agreement bar.",
     )
     parser.add_argument("--top-n", type=int, default=80)
     parser.add_argument("--output", type=Path, default=ROOT / "embed" / "tuning" / "consistent_non_gloss.json")
     return parser.parse_args()
 
 
+PRESETS: dict[str, dict[str, float | int]] = {
+    "strict": {
+        "min_score": 4.0,
+        "min_unique_top1": 100,
+        "min_entropy": 4.0,
+        "min_trials": 2,
+        "min_trial_fraction": 0.5,
+        "min_margin": 0.05,
+        "max_global_top1_fraction": 0.05,
+    },
+    "default": {
+        "min_score": 3.0,
+        "min_unique_top1": 50,
+        "min_entropy": 3.0,
+        "min_trials": 2,
+        "min_trial_fraction": 0.35,
+        "min_margin": 0.03,
+        "max_global_top1_fraction": 0.08,
+    },
+    "relaxed": {
+        "min_score": 2.0,
+        "min_unique_top1": 25,
+        "min_entropy": 2.0,
+        "min_trials": 2,
+        "min_trial_fraction": 0.25,
+        "min_margin": 0.02,
+        "max_global_top1_fraction": 0.12,
+    },
+}
+
+
 def main() -> None:
     args = parse_args()
+    if args.preset != "default":
+        for key, value in PRESETS[args.preset].items():
+            setattr(args, key, value)
     report = analyze(
         args.neighbors_root,
         args.trials_jsonl,
@@ -246,7 +296,7 @@ def main() -> None:
                 f"margin={row['mean_margin']:.3f}  cosine={row['mean_cosine']:.3f}"
             )
     else:
-        print("\nNo glyphs passed strict filters.")
+        print("\nNo glyphs passed filters (try --preset relaxed or lower --min-trial-fraction).")
 
 
 if __name__ == "__main__":

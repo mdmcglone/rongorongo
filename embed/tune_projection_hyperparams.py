@@ -137,6 +137,14 @@ def build_trial_grid() -> list[TrialConfig]:
 
 SIMPLE_VARIANT_STRATEGIES = ("simple", "simple_separators", "simple_ligatures")
 SUFFIX_VARIANT_STRATEGIES = ("suffix", "suffix_separators", "suffix_ligatures", "suffix_noag")
+BARTHEL_VARIANT_STRATEGIES = (
+    "barthel",
+    "barthel_separators",
+    "barthel_ligatures",
+    "barthel_noag",
+    "barthel_separators_noag",
+    "barthel_ligatures_noag",
+)
 
 
 def _enumerate_hyper_candidates() -> list[tuple[float, float, float, int, int]]:
@@ -392,6 +400,96 @@ def build_suffix_variants_focused_grid() -> list[TrialConfig]:
     )
     _append_trials(
         trials, seen, counter, strategy="suffix_noag", model_preset="e5-small", hypers=noag_hypers, prefix="svfx_ng_"
+    )
+    return trials
+
+
+def build_barthel_variants_focused_grid() -> list[TrialConfig]:
+    """Focused grid across all six Barthel tokenizer variants (48 trials, e5-small)."""
+    base_hypers = [
+        (8.0, 0.50, 0.15, 12, 12),
+        (6.0, 0.50, 0.15, 12, 12),
+        (8.0, 0.60, 0.15, 12, 12),
+        (8.0, 0.50, 0.15, 12, 14),
+        (8.0, 0.50, 0.12, 12, 12),
+        (7.0, 0.50, 0.15, 12, 12),
+        (9.0, 0.50, 0.15, 12, 12),
+        (8.0, 0.55, 0.15, 12, 12),
+        (8.0, 0.45, 0.15, 12, 12),
+        (8.0, 0.50, 0.10, 12, 12),
+        (8.0, 0.50, 0.18, 12, 12),
+        (8.0, 0.50, 0.15, 10, 12),
+    ]
+    separators_hypers = [
+        (8.0, 0.50, 0.15, 12, 15),
+        (8.0, 0.50, 0.15, 12, 14),
+        (8.0, 0.50, 0.15, 12, 16),
+        (7.0, 0.50, 0.15, 12, 15),
+        (9.0, 0.50, 0.15, 12, 15),
+        (8.0, 0.45, 0.15, 12, 15),
+        (8.0, 0.55, 0.15, 12, 15),
+        (8.0, 0.50, 0.12, 12, 15),
+    ]
+    ligatures_hypers = [
+        (8.0, 0.50, 0.15, 12, 12),
+        (6.0, 0.50, 0.15, 12, 12),
+        (8.0, 0.60, 0.15, 12, 12),
+        (8.0, 0.50, 0.15, 12, 14),
+        (8.0, 0.50, 0.12, 12, 12),
+        (8.0, 0.55, 0.15, 12, 12),
+        (8.0, 0.45, 0.15, 12, 12),
+        (8.0, 0.50, 0.15, 10, 12),
+    ]
+    noag_hypers = [
+        (8.0, 0.50, 0.15, 12, 12),
+        (8.0, 0.65, 0.15, 12, 12),
+        (8.0, 0.50, 0.15, 12, 10),
+        (6.0, 0.50, 0.15, 12, 12),
+        (8.0, 0.50, 0.12, 12, 12),
+        (8.0, 0.60, 0.15, 12, 12),
+    ]
+    trials: list[TrialConfig] = []
+    seen: set[tuple[Any, ...]] = set()
+    counter = [0]
+    _append_trials(trials, seen, counter, strategy="barthel", model_preset="e5-small", hypers=base_hypers, prefix="svfb_bh_")
+    _append_trials(
+        trials,
+        seen,
+        counter,
+        strategy="barthel_separators",
+        model_preset="e5-small",
+        hypers=separators_hypers,
+        prefix="svfb_sep_",
+    )
+    _append_trials(
+        trials,
+        seen,
+        counter,
+        strategy="barthel_ligatures",
+        model_preset="e5-small",
+        hypers=ligatures_hypers,
+        prefix="svfb_lig_",
+    )
+    _append_trials(
+        trials, seen, counter, strategy="barthel_noag", model_preset="e5-small", hypers=noag_hypers, prefix="svfb_ng_"
+    )
+    _append_trials(
+        trials,
+        seen,
+        counter,
+        strategy="barthel_separators_noag",
+        model_preset="e5-small",
+        hypers=separators_hypers,
+        prefix="svfb_sng_",
+    )
+    _append_trials(
+        trials,
+        seen,
+        counter,
+        strategy="barthel_ligatures_noag",
+        model_preset="e5-small",
+        hypers=noag_hypers,
+        prefix="svfb_lng_",
     )
     return trials
 
@@ -691,6 +789,11 @@ GRID_OUTPUT: dict[str, tuple[str, str, Any]] = {
         "suffix_variants_focused_best_summary.json",
         build_suffix_variants_focused_grid,
     ),
+    "barthel_variants_focused": (
+        "barthel_variants_focused_trials.jsonl",
+        "barthel_variants_focused_best_summary.json",
+        build_barthel_variants_focused_grid,
+    ),
 }
 
 
@@ -833,7 +936,8 @@ def main() -> None:
     for item in summary["best_trials"]:
         print(json.dumps(item, indent=2))
 
-    if args.analyze_after and args.grid in ("simple_variants_focused", "suffix_variants_focused") and args.save_artifacts:
+    focused_grids = ("simple_variants_focused", "suffix_variants_focused", "barthel_variants_focused")
+    if args.analyze_after and args.grid in focused_grids and args.save_artifacts:
         analyze_script = EMBED_DIR / "analyze_consistent_non_gloss_neighbors.py"
         if analyze_script.exists():
             import subprocess

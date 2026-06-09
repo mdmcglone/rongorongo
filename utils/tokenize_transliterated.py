@@ -5,7 +5,7 @@ import json
 import re
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,6 +21,11 @@ NUMERIC_LIGATURE_PATTERN = re.compile(r"\d+[A-Za-z]*(?:[.:]\d+[A-Za-z]*)*")
 NUMERIC_COMPONENT_PATTERN = re.compile(r"\d+")
 TEXT_MARKERS = str.maketrans("", "", "!*?()")
 NOAG_MARKERS = str.maketrans("", "", "abcdefgV")
+
+
+class GlyphVariantToken(TypedDict):
+    glyph: str
+    variants: list[str]
 
 
 class TransliterationTokenizer:
@@ -39,6 +44,7 @@ class TransliterationTokenizer:
             "simple": self.tokenize_simple,
             "simple_separators": self.tokenize_simple_with_separators,
             "simple_ligatures": self.tokenize_simple_ligatures,
+            "glyph_variants": self.tokenize_glyph_variants,
             "normalized_text": self.tokenize_normalized_text,
             "characters": self.tokenize_characters,
         }
@@ -119,6 +125,10 @@ class TransliterationTokenizer:
             tokens.append("".join(normalize_code(part) if part not in ".:" else part for part in parts))
         return tokens
 
+    def tokenize_glyph_variants(self, text: str) -> list[GlyphVariantToken]:
+        """One token per glyph occurrence: 3-digit code plus individual suffix letters as variants."""
+        return [parse_glyph_variants_token(token) for token in TOKEN_PATTERN.findall(text)]
+
     def tokenize_normalized_text(self, text: str) -> str:
         return normalize_text(text)
 
@@ -153,6 +163,14 @@ def split_suffix_token(value: str) -> list[str]:
     base = normalize_numbers_in_token(re.sub(r"[A-Za-z]+", "", value))
     suffix = re.findall(r"[A-Za-z]", value)
     return [base, *suffix] if base else suffix
+
+
+def parse_glyph_variants_token(value: str) -> GlyphVariantToken:
+    """Split a raw transliteration token into a zero-padded glyph code and suffix letter variants."""
+    letters = re.findall(r"[A-Za-z]", value)
+    match = NUMERIC_COMPONENT_PATTERN.search(value)
+    glyph = match.group(0).zfill(3) if match else ""
+    return {"glyph": glyph, "variants": letters}
 
 
 def tokenize_file(input_path: Path, output_path: Path, tokenizer: TransliterationTokenizer, strategy: str) -> int:

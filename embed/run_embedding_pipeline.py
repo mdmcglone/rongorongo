@@ -9,6 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_TOKENIZED_DIR = ROOT / "rr_tablets" / "transliterated" / "complete" / "tokenized" / "barthel"
 DEFAULT_OUTPUT_DIR = ROOT / "outputs" / "projection"
+GLYPH_VARIANT_STRATEGY = "glyph_variants"
 TRANSFORMER_PRESETS = {
     "distilbert": "distilbert-base-uncased",
     "minilm": "sentence-transformers/all-MiniLM-L6-v2",
@@ -19,6 +20,12 @@ TRANSFORMER_PRESETS = {
 
 def sanitize_model_name(model_name: str) -> str:
     return model_name.replace("/", "_")
+
+
+def learn_script_for_strategy(strategy: str) -> Path:
+    if strategy == GLYPH_VARIANT_STRATEGY:
+        return ROOT / "embed" / "learn_glyph_variant_projection.py"
+    return ROOT / "embed" / "learn_projection_to_transformer_space.py"
 
 
 def run_command(command: list[str], cwd: Path) -> None:
@@ -79,7 +86,7 @@ def main() -> None:
         run_command(
             [
                 sys.executable,
-                str(ROOT / "embed" / "learn_projection_to_transformer_space.py"),
+                str(learn_script_for_strategy(strategy)),
                 "--tokenized-dir",
                 str(args.tokenized_dir),
                 "--transformer",

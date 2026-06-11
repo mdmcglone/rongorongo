@@ -15,6 +15,8 @@ import numpy as np
 
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 EMBED_DIR = Path(__file__).resolve().parent
 TUNE_DIR = EMBED_DIR / "tuning"
 NEIGHBORS_DIR = TUNE_DIR / "trial_neighbors"
@@ -23,6 +25,9 @@ RESULTS_PATH = TUNE_DIR / "trials.jsonl"
 SUMMARY_PATH = TUNE_DIR / "best_summary.json"
 TOKENIZED_ROOT = ROOT / "rr_tablets" / "transliterated" / "complete" / "tokenized"
 ANCHORS_FILE = EMBED_DIR / "gloss_anchors.json"
+
+from embed.glyph_variant_codec import GLYPH_VARIANT_STRATEGY, load_glyph_variant_sequences
+from embed.learn_glyph_variant_projection import build_glyph_variant_anchor_targets
 
 MODEL_PRESETS: dict[str, str] = {
     "e5-small": "intfloat/e5-small-v2",
@@ -494,6 +499,108 @@ def build_barthel_variants_focused_grid() -> list[TrialConfig]:
     return trials
 
 
+def _dedupe_hypers(hypers_lists: list[list[tuple[float, float, float, int, int]]]) -> list[tuple[float, float, float, int, int]]:
+    seen: set[tuple[float, float, float, int, int]] = set()
+    out: list[tuple[float, float, float, int, int]] = []
+    for hypers in hypers_lists:
+        for item in hypers:
+            if item in seen:
+                continue
+            seen.add(item)
+            out.append(item)
+    return out
+
+
+def build_glyph_variants_focused_grid() -> list[TrialConfig]:
+    """Focused 48-trial grid for glyph_variants (42 e5-small + 6 minilm)."""
+    simple_hypers = [
+        (8.0, 0.50, 0.15, 12, 12),
+        (6.0, 0.50, 0.15, 12, 12),
+        (8.0, 0.60, 0.15, 12, 12),
+        (8.0, 0.50, 0.15, 12, 14),
+        (8.0, 0.50, 0.12, 12, 12),
+        (7.0, 0.50, 0.15, 12, 12),
+        (9.0, 0.50, 0.15, 12, 12),
+        (8.0, 0.55, 0.15, 12, 12),
+        (8.0, 0.45, 0.15, 12, 12),
+        (8.0, 0.50, 0.10, 12, 12),
+        (8.0, 0.50, 0.18, 12, 12),
+        (8.0, 0.50, 0.15, 10, 12),
+        (8.0, 0.50, 0.15, 14, 12),
+        (8.0, 0.50, 0.15, 12, 11),
+        (8.0, 0.50, 0.15, 12, 13),
+        (6.0, 0.55, 0.15, 12, 12),
+        (8.0, 0.60, 0.12, 12, 12),
+        (7.0, 0.55, 0.12, 12, 12),
+    ]
+    separators_hypers = [
+        (8.0, 0.50, 0.15, 12, 15),
+        (8.0, 0.50, 0.15, 12, 16),
+        (7.0, 0.50, 0.15, 12, 15),
+        (9.0, 0.50, 0.15, 12, 15),
+        (8.0, 0.45, 0.15, 12, 15),
+        (8.0, 0.55, 0.15, 12, 15),
+        (8.0, 0.50, 0.12, 12, 15),
+        (8.0, 0.50, 0.10, 12, 15),
+        (6.0, 0.50, 0.15, 12, 15),
+        (8.0, 0.50, 0.15, 14, 15),
+    ]
+    ligatures_hypers = [
+        (8.0, 0.50, 0.15, 10, 12),
+        (8.0, 0.50, 0.15, 12, 15),
+        (7.0, 0.50, 0.15, 12, 12),
+        (8.0, 0.50, 0.15, 12, 13),
+    ]
+    extra_hypers = [
+        (5.0, 0.50, 0.15, 12, 12),
+        (10.0, 0.50, 0.15, 12, 12),
+        (8.0, 0.50, 0.08, 12, 12),
+        (8.0, 0.50, 0.20, 12, 12),
+        (8.0, 0.40, 0.15, 12, 12),
+        (8.0, 0.50, 0.15, 8, 12),
+        (8.0, 0.50, 0.15, 16, 12),
+        (8.0, 0.35, 0.15, 12, 12),
+        (7.0, 0.45, 0.12, 12, 12),
+        (9.0, 0.55, 0.12, 12, 12),
+        (8.0, 0.50, 0.15, 12, 9),
+        (6.0, 0.60, 0.12, 12, 12),
+        (8.0, 0.50, 0.15, 14, 14),
+        (7.0, 0.50, 0.18, 12, 12),
+        (8.0, 0.50, 0.15, 12, 16),
+    ]
+    minilm_hypers = [
+        (8.0, 0.50, 0.15, 12, 12),
+        (8.0, 0.65, 0.15, 12, 12),
+        (8.0, 0.50, 0.15, 12, 10),
+        (6.0, 0.50, 0.15, 12, 12),
+        (8.0, 0.50, 0.12, 12, 12),
+        (8.0, 0.60, 0.15, 12, 12),
+    ]
+    e5_hypers = _dedupe_hypers([simple_hypers, separators_hypers, ligatures_hypers, extra_hypers])
+    trials: list[TrialConfig] = []
+    seen: set[tuple[Any, ...]] = set()
+    counter = [0]
+    _append_trials(
+        trials,
+        seen,
+        counter,
+        strategy=GLYPH_VARIANT_STRATEGY,
+        model_preset="e5-small",
+        hypers=e5_hypers,
+        prefix="svgv_e5_",
+    )
+    _append_trials(
+        trials,
+        seen,
+        counter,
+        strategy=GLYPH_VARIANT_STRATEGY,
+        model_preset="minilm",
+        hypers=minilm_hypers,
+        prefix="svgv_mn_",
+    )
+    return trials
+
+
 def build_simple_focused_grid() -> list[TrialConfig]:
     """Focused search around best simple+e5-small config (t032)."""
     center = {
@@ -686,16 +793,29 @@ def run_trial(
 ) -> dict[str, Any]:
     tokenized_dir = TOKENIZED_ROOT / trial.strategy
     transformer_name = MODEL_PRESETS[trial.model_preset]
-    sequences = learn.load_sequences(tokenized_dir)
+    if trial.strategy == GLYPH_VARIANT_STRATEGY:
+        sequences = load_glyph_variant_sequences(tokenized_dir)
+    else:
+        sequences = learn.load_sequences(tokenized_dir)
     vocab, token_to_idx = learn.build_vocab(sequences)
     pairs = learn.context_pairs(sequences, token_to_idx, window=trial.window, mask_separators=True)
     tokenizer, transformer_embeddings = learn.load_transformer_embeddings(transformer_name)
-    anchor_targets = learn.build_anchor_targets(
-        learn.load_gloss_anchors(ANCHORS_FILE),
-        token_to_idx,
-        tokenizer,
-        transformer_embeddings,
-    )
+    anchors = learn.load_gloss_anchors(ANCHORS_FILE)
+    if trial.strategy == GLYPH_VARIANT_STRATEGY:
+        anchor_targets = build_glyph_variant_anchor_targets(
+            anchors,
+            token_to_idx,
+            vocab,
+            tokenizer,
+            transformer_embeddings,
+        )
+    else:
+        anchor_targets = learn.build_anchor_targets(
+            anchors,
+            token_to_idx,
+            tokenizer,
+            transformer_embeddings,
+        )
     model = learn.ProjectionModel.create(
         vocab_size=len(vocab),
         input_dim=128,
@@ -793,6 +913,11 @@ GRID_OUTPUT: dict[str, tuple[str, str, Any]] = {
         "barthel_variants_focused_trials.jsonl",
         "barthel_variants_focused_best_summary.json",
         build_barthel_variants_focused_grid,
+    ),
+    "glyph_variants_focused": (
+        "glyph_variants_focused_trials.jsonl",
+        "glyph_variants_focused_best_summary.json",
+        build_glyph_variants_focused_grid,
     ),
 }
 
@@ -936,7 +1061,12 @@ def main() -> None:
     for item in summary["best_trials"]:
         print(json.dumps(item, indent=2))
 
-    focused_grids = ("simple_variants_focused", "suffix_variants_focused", "barthel_variants_focused")
+    focused_grids = (
+        "simple_variants_focused",
+        "suffix_variants_focused",
+        "barthel_variants_focused",
+        "glyph_variants_focused",
+    )
     if args.analyze_after and args.grid in focused_grids and args.save_artifacts:
         analyze_script = EMBED_DIR / "analyze_consistent_non_gloss_neighbors.py"
         if analyze_script.exists():

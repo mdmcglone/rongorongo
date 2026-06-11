@@ -11,9 +11,15 @@ from safetensors.numpy import load_file
 from transformers import AutoTokenizer
 
 
+import sys
+
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 DEFAULT_PROJECTION = ROOT / "outputs" / "projection" / "barthel_projection.npz"
 DEFAULT_METADATA = ROOT / "outputs" / "projection" / "barthel_projection_metadata.json"
+
+from embed.glyph_variant_codec import GLYPH_VARIANT_STRATEGY, resolve_anchor_vocab_key
 
 
 def normalize(matrix: np.ndarray) -> np.ndarray:
@@ -100,7 +106,13 @@ def main() -> None:
     projected = projection["projected_embeddings"].astype(np.float32)
     projected = normalize(projected)
 
-    token_idx = int(args.index) if args.index is not None else int(np.where(vocab == str(args.token))[0][0])
+    if args.index is not None:
+        token_idx = int(args.index)
+    else:
+        token = str(args.token)
+        if str(metadata.get("strategy", "")) == GLYPH_VARIANT_STRATEGY:
+            token = resolve_anchor_vocab_key(token, vocab) or token
+        token_idx = int(np.where(vocab == token)[0][0])
     if token_idx < 0 or token_idx >= len(vocab):
         raise IndexError(f"Token index {token_idx} out of range for vocab size {len(vocab)}")
 

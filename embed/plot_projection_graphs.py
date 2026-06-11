@@ -14,11 +14,17 @@ from safetensors.numpy import load_file
 from transformers import AutoTokenizer
 
 
+import sys
+
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 DEFAULT_PROJECTION = ROOT / "outputs" / "projection" / "barthel_projection.npz"
 DEFAULT_METADATA = ROOT / "outputs" / "projection" / "barthel_projection_metadata.json"
 DEFAULT_GRAPHS_ROOT = ROOT / "embed" / "graphs"
 GLOSS_ANCHORS_FILE = Path(__file__).resolve().parent / "gloss_anchors.json"
+
+from embed.glyph_variant_codec import GLYPH_VARIANT_STRATEGY, resolve_anchor_vocab_key
 
 
 def normalize(matrix: np.ndarray) -> np.ndarray:
@@ -246,11 +252,17 @@ def render_projection_graphs(
     anchor_checks = metadata.get("gloss_anchors", [])
     anchor_top1: dict[str, list] = {}
     anchor_gloss_cosine: dict[str, float] = {}
+    strategy = str(metadata.get("strategy", ""))
     for entry in anchor_checks:
-        token = str(entry["token"])
-        if token not in neighbors:
+        anchor_glyph = str(entry["token"])
+        vocab_token = (
+            resolve_anchor_vocab_key(anchor_glyph, vocab)
+            if strategy == GLYPH_VARIANT_STRATEGY
+            else anchor_glyph
+        )
+        if not vocab_token or vocab_token not in neighbors:
             continue
-        anchor_top1[token] = neighbors[token][:3]
+        anchor_top1[anchor_glyph] = neighbors[vocab_token][:3]
         gloss_words = [str(gloss) for gloss in entry.get("glosses", [])]
         if gloss_words:
             gloss_vec = normalize(
@@ -259,8 +271,8 @@ def render_projection_graphs(
                     dtype=np.float32,
                 ).mean(axis=0, keepdims=True)
             )[0]
-            token_idx = int(np.where(vocab == token)[0][0])
-            anchor_gloss_cosine[token] = float(np.dot(projected[token_idx], gloss_vec))
+            token_idx = int(np.where(vocab == vocab_token)[0][0])
+            anchor_gloss_cosine[anchor_glyph] = float(np.dot(projected[token_idx], gloss_vec))
     metrics["anchor_top1_hits"] = anchor_top1
     metrics["anchor_gloss_cosine"] = anchor_gloss_cosine
     (graph_dir / "rongo_eval_metrics.json").write_text(json.dumps(metrics, indent=2) + "\n")

@@ -38,8 +38,26 @@ Because the script is unread, modern study relies on **transliterations**: glyph
 | `rr_tablets/` | Transliterated tablet texts and tokenized variants |
 | `utils/` | Tokenization strategies (simple, Barthel, suffix, glyph+variants, etc.) |
 | `embed/` | Project Rongorongo tokens into frozen English embedding space (e5-small, etc.), gloss anchors, hyperparameter tuning, neighbor JSONs and plots |
+| `glyph_variants` | Structured tokenizer (`{glyph, variant, modifiers}`) with dedicated projection learner (`learn_glyph_variant_projection.py`) |
 
 Generated artifacts (`outputs/`, `embed/tuning/trial_outputs/`, etc.) are local experiment output and are gitignored.
+
+### Glyph variants pipeline
+
+```bash
+python utils/tokenize_transliterated.py --strategy glyph_variants
+python embed/run_embedding_pipeline.py \
+  --tokenized-dir rr_tablets/transliterated/complete/tokenized/glyph_variants \
+  --transformer-preset e5-small \
+  --epochs 12 --anchor-weight 8 --projected-cooccurrence-weight 0.5 \
+  --collapse-weight 0.15 --anchor-passes 12
+```
+
+Vocab keys flatten structured tokens (e.g. `003`, `003:a`, `003:a+x`) so `003:a` and `003:b` share glyph `003` but train as distinct rows.
+
+```bash
+python embed/tune_projection_hyperparams.py --grid glyph_variants_focused --resume
+```
 
 ---
 

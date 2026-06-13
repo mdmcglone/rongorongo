@@ -57,7 +57,10 @@ Vocab keys flatten structured tokens (e.g. `003`, `003:a`, `003:a+x`) so `003:a`
 
 ```bash
 python embed/tune_projection_hyperparams.py --grid glyph_variants_focused --resume
+python embed/tune_projection_hyperparams.py --grid glyph_variants_tight --resume
 ```
+
+Tight grid centers on winner `svgv_e5_0004` (ep=14, aw=8, cooc=0.5, collapse=0.15).
 
 ---
 

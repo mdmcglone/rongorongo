@@ -601,6 +601,57 @@ def build_glyph_variants_focused_grid() -> list[TrialConfig]:
     return trials
 
 
+def build_glyph_variants_tight_grid() -> list[TrialConfig]:
+    """Tight grid around svgv_e5_0004 winner (cooc=0.5 only; e5-small)."""
+    hypers = _dedupe_hypers(
+        [
+            [
+                (8.0, 0.50, 0.15, 12, 14),  # svgv_e5_0004 center
+                (6.0, 0.50, 0.15, 12, 12),  # svgv_e5_0002 spread basin
+                (6.0, 0.50, 0.15, 12, 14),
+                (7.0, 0.50, 0.15, 12, 14),
+                (9.0, 0.50, 0.15, 12, 14),
+                (8.0, 0.50, 0.15, 12, 13),
+                (8.0, 0.50, 0.15, 12, 15),
+                (8.0, 0.50, 0.15, 12, 16),
+                (8.0, 0.50, 0.12, 12, 14),
+                (8.0, 0.50, 0.13, 12, 14),
+                (8.0, 0.50, 0.14, 12, 14),
+                (8.0, 0.50, 0.16, 12, 14),
+                (8.0, 0.50, 0.15, 10, 14),
+                (8.0, 0.50, 0.15, 14, 14),
+                (8.0, 0.50, 0.12, 12, 12),
+                (8.0, 0.50, 0.12, 12, 15),
+                (7.0, 0.50, 0.12, 12, 14),
+                (6.0, 0.50, 0.12, 12, 14),
+                (7.0, 0.50, 0.15, 12, 12),
+                (8.0, 0.50, 0.15, 12, 12),
+                (9.0, 0.50, 0.15, 12, 12),
+                (8.0, 0.50, 0.14, 12, 15),
+                (7.0, 0.50, 0.14, 12, 14),
+                (8.0, 0.50, 0.13, 12, 15),
+            ],
+            [
+                (8.0, 0.50, 0.15, 12, 14),
+                (8.0, 0.50, 0.15, 12, 14),
+            ],
+        ]
+    )
+    trials: list[TrialConfig] = []
+    seen: set[tuple[Any, ...]] = set()
+    counter = [0]
+    _append_trials(
+        trials,
+        seen,
+        counter,
+        strategy=GLYPH_VARIANT_STRATEGY,
+        model_preset="e5-small",
+        hypers=hypers,
+        prefix="svgt_",
+    )
+    return trials
+
+
 def build_simple_focused_grid() -> list[TrialConfig]:
     """Focused search around best simple+e5-small config (t032)."""
     center = {
@@ -919,6 +970,11 @@ GRID_OUTPUT: dict[str, tuple[str, str, Any]] = {
         "glyph_variants_focused_best_summary.json",
         build_glyph_variants_focused_grid,
     ),
+    "glyph_variants_tight": (
+        "glyph_variants_tight_trials.jsonl",
+        "glyph_variants_tight_best_summary.json",
+        build_glyph_variants_tight_grid,
+    ),
 }
 
 
@@ -1066,6 +1122,7 @@ def main() -> None:
         "suffix_variants_focused",
         "barthel_variants_focused",
         "glyph_variants_focused",
+        "glyph_variants_tight",
     )
     if args.analyze_after and args.grid in focused_grids and args.save_artifacts:
         analyze_script = EMBED_DIR / "analyze_consistent_non_gloss_neighbors.py"
